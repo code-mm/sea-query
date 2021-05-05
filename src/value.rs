@@ -1,5 +1,5 @@
 //! Container for all SQL value types.
-use std::fmt::Write;
+use std::{convert::{TryFrom, TryInto}, fmt::Write};
 
 #[cfg(feature="with-json")]
 use std::str::from_utf8;
@@ -43,6 +43,18 @@ pub enum Value {
 #[derive(Debug, PartialEq)]
 pub struct Values(pub Vec<Value>);
 
+impl<T> From<Option<T>> for Value
+where
+    T: Into<Value>,
+{
+    fn from(x: Option<T>) -> Self {
+        match x {
+            Some(x) => x.into(),
+            None => Value::Null,
+        }
+    }
+}
+
 impl From<bool> for Value {
     fn from(x: bool) -> Value {
         Value::Bool(x)
@@ -67,9 +79,69 @@ impl From<i32> for Value {
     }
 }
 
+impl TryFrom<Value> for i32 {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Bool(v) => v.try_into().map_err(Into::into),
+            Value::TinyInt(v) => v.try_into().map_err(Into::into),
+            Value::SmallInt(v) => v.try_into().map_err(Into::into),
+            Value::Int(v) => Ok(v),
+            Value::BigInt(v) => v.try_into().map_err(Into::into),
+            Value::TinyUnsigned(v) => v.try_into().map_err(Into::into),
+            Value::SmallUnsigned(v) => v.try_into().map_err(Into::into),
+            Value::Unsigned(v) => v.try_into().map_err(Into::into),
+            Value::BigUnsigned(v) => v.try_into().map_err(Into::into),
+            _ => Err(crate::error::Error::FailToConvert),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<i32> {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Value::Null => None,
+            _ => Some(value.try_into()?),
+        })
+    }
+}
+
 impl From<i64> for Value {
     fn from(x: i64) -> Value {
         Value::BigInt(x)
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Bool(v) => v.try_into().map_err(Into::into),
+            Value::TinyInt(v) => v.try_into().map_err(Into::into),
+            Value::SmallInt(v) => v.try_into().map_err(Into::into),
+            Value::Int(v) => v.try_into().map_err(Into::into),
+            Value::BigInt(v) => Ok(v),
+            Value::TinyUnsigned(v) => v.try_into().map_err(Into::into),
+            Value::SmallUnsigned(v) => v.try_into().map_err(Into::into),
+            Value::Unsigned(v) => v.try_into().map_err(Into::into),
+            Value::BigUnsigned(v) => v.try_into().map_err(Into::into),
+            _ => Err(crate::error::Error::FailToConvert),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<i64> {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Value::Null => None,
+            _ => Some(value.try_into()?),
+        })
     }
 }
 
@@ -131,6 +203,29 @@ impl<'a> From<&'a str> for Value {
 impl From<String> for Value {
     fn from(x: String) -> Value {
         Value::String(Box::new(x))
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(v) => Ok(v.to_string()),
+            Value::Bytes(v) => String::from_utf8(v.to_vec()).map_err(Into::into),
+            _ => Err(crate::error::Error::FailToConvert),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<String> {
+    type Error = crate::error::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Value::Null => None,
+            _ => Some(value.try_into()?),
+        })
     }
 }
 
