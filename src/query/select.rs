@@ -83,6 +83,65 @@ impl Default for SelectStatement {
     }
 }
 
+pub trait SelectFilter {
+    /// And where condition.
+    fn and_where(&mut self, other: SimpleExpr) -> &mut Self;
+
+    /// And where condition, variation of [`SelectFilter::and_where()`].
+    fn and_where_option(&mut self, other: Option<SimpleExpr>) -> &mut Self;
+
+    /// Or where condition.
+    fn or_where(&mut self, other: SimpleExpr) -> &mut Self;
+}
+
+pub trait SelectGroupBy {
+    /// Group by columns.
+    fn group_by_columns<T, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: IntoColumnRef,
+        I: IntoIterator<Item = T>;
+
+    /// Add group by expressions from vector of [`SelectExpr`].
+    fn add_group_by<I>(&mut self, expr: I) -> &mut Self
+    where
+        I: IntoIterator<Item = SimpleExpr>;
+
+    /// And having condition.
+    fn and_having(&mut self, other: SimpleExpr) -> &mut Self;
+    
+    /// Or having condition.
+    fn or_having(&mut self, other: SimpleExpr) -> &mut Self;
+}
+
+pub trait SelectOrder {
+    /// Order by column.
+    fn order_by<T>(&mut self, col: T, order: Order) -> &mut Self 
+        where T: IntoColumnRef;
+
+    /// Order by [`SimpleExpr`].
+    fn order_by_expr(&mut self, expr: SimpleExpr, order: Order) -> &mut Self;
+
+    /// Order by custom string expression.
+    fn order_by_customs<T: 'static, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: ToString,
+        I: IntoIterator<Item = (T, Order)>;
+
+    /// Order by vector of columns.
+    fn order_by_columns<T, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: IntoColumnRef,
+        I: IntoIterator<Item = (T, Order)>;
+}
+
+pub trait SelectLimit {
+    /// Limit the number of returned rows.
+    fn limit(&mut self, limit: u64) -> &mut Self;
+
+    /// Offset number of returned rows.
+    fn offset(&mut self, offset: u64) -> &mut Self;
+}
+
 impl SelectStatement {
     /// Construct a new [`SelectStatement`]
     pub fn new() -> Self {
@@ -825,75 +884,6 @@ impl SelectStatement {
         self
     }
 
-    /// Group by columns.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Char::Character)
-    ///     .table_column(Font::Table, Font::Name)
-    ///     .from(Char::Table)
-    ///     .join(JoinType::RightJoin, Font::Table, Expr::tbl(Char::Table, Char::FontId).equals(Font::Table, Font::Id))
-    ///     .group_by_columns(vec![
-    ///         Char::Character,
-    ///     ])
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "character", "font"."name" FROM "character" RIGHT JOIN "font" ON "character"."font_id" = "font"."id" GROUP BY "character""#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`"#
-    /// );
-    /// ```
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Char::Character)
-    ///     .table_column(Font::Table, Font::Name)
-    ///     .from(Char::Table)
-    ///     .join(JoinType::RightJoin, Font::Table, Expr::tbl(Char::Table, Char::FontId).equals(Font::Table, Font::Id))
-    ///     .group_by_columns(vec![
-    ///         (Char::Table, Char::Character),
-    ///     ])
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`.`character`"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "character", "font"."name" FROM "character" RIGHT JOIN "font" ON "character"."font_id" = "font"."id" GROUP BY "character"."character""#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`.`character`"#
-    /// );
-    /// ```
-    pub fn group_by_columns<T, I>(&mut self, cols: I) -> &mut Self
-    where
-        T: IntoColumnRef,
-        I: IntoIterator<Item = T>,
-    {
-        self.add_group_by(
-            cols.into_iter()
-                .map(|c| SimpleExpr::Column(c.into_column_ref()))
-                .collect::<Vec<_>>(),
-        )
-    }
-
     #[deprecated(
         since = "0.9.0",
         note = "Please use the [`SelectStatement::group_by_columns`] with a tuple as [`ColumnRef`]"
@@ -910,224 +900,6 @@ impl SelectStatement {
         )
     }
 
-    /// And where condition.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .table_column(Glyph::Table, Glyph::Image)
-    ///     .from(Glyph::Table)
-    ///     .and_where(Expr::tbl(Glyph::Table, Glyph::Aspect).is_in(vec![3, 4]))
-    ///     .and_where(Expr::tbl(Glyph::Table, Glyph::Image).like("A%"))
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) AND `glyph`.`image` LIKE 'A%'"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "glyph"."image" FROM "glyph" WHERE "glyph"."aspect" IN (3, 4) AND "glyph"."image" LIKE 'A%'"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) AND `glyph`.`image` LIKE 'A%'"#
-    /// );
-    /// ```
-    pub fn and_where(&mut self, other: SimpleExpr) -> &mut Self {
-        self.wherei.push(LogicalChainOper::And(other));
-        self
-    }
-
-    /// And where condition, variation of [`SelectStatement::and_where`].
-    pub fn and_where_option(&mut self, other: Option<SimpleExpr>) -> &mut Self {
-        if let Some(other) = other {
-            self.wherei.push(LogicalChainOper::And(other));
-        }
-        self
-    }
-
-    /// Or where condition.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .table_column(Glyph::Table, Glyph::Image)
-    ///     .from(Glyph::Table)
-    ///     .or_where(Expr::tbl(Glyph::Table, Glyph::Aspect).is_in(vec![3, 4]))
-    ///     .or_where(Expr::tbl(Glyph::Table, Glyph::Image).like("A%"))
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) OR `glyph`.`image` LIKE 'A%'"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "glyph"."image" FROM "glyph" WHERE "glyph"."aspect" IN (3, 4) OR "glyph"."image" LIKE 'A%'"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) OR `glyph`.`image` LIKE 'A%'"#
-    /// );
-    /// ```
-    pub fn or_where(&mut self, other: SimpleExpr) -> &mut Self {
-        self.wherei.push(LogicalChainOper::Or(other));
-        self
-    }
-
-    /// Add group by expressions from vector of [`SelectExpr`].
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .from(Char::Table)
-    ///     .column(Char::Character)
-    ///     .add_group_by(vec![
-    ///         Expr::col(Char::SizeW).into(),
-    ///         Expr::col(Char::SizeH).into(),
-    ///     ])
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `character` FROM `character` GROUP BY `size_w`, `size_h`"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "character" FROM "character" GROUP BY "size_w", "size_h""#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `character` FROM `character` GROUP BY `size_w`, `size_h`"#
-    /// );
-    /// ```
-    pub fn add_group_by<I>(&mut self, expr: I) -> &mut Self
-    where
-        I: IntoIterator<Item = SimpleExpr>,
-    {
-        self.groups.append(&mut Vec::from_iter(expr.into_iter()));
-        self
-    }
-
-    /// And having condition.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Glyph::Aspect)
-    ///     .expr(Expr::col(Glyph::Image).max())
-    ///     .from(Glyph::Table)
-    ///     .group_by_columns(vec![
-    ///         Glyph::Aspect,
-    ///     ])
-    ///     .and_having(Expr::col(Glyph::Aspect).gt(2))
-    ///     .and_having(Expr::col(Glyph::Aspect).lt(8))
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` > 2 AND `aspect` < 8"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "aspect", MAX("image") FROM "glyph" GROUP BY "aspect" HAVING "aspect" > 2 AND "aspect" < 8"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` > 2 AND `aspect` < 8"#
-    /// );
-    /// ```
-    pub fn and_having(&mut self, other: SimpleExpr) -> &mut Self {
-        self.having.push(LogicalChainOper::And(other));
-        self
-    }
-
-    /// Or having condition.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Glyph::Aspect)
-    ///     .expr(Expr::col(Glyph::Image).max())
-    ///     .from(Glyph::Table)
-    ///     .group_by_columns(vec![
-    ///         Glyph::Aspect,
-    ///     ])
-    ///     .or_having(Expr::col(Glyph::Aspect).lt(1))
-    ///     .or_having(Expr::col(Glyph::Aspect).gt(10))
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` < 1 OR `aspect` > 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "aspect", MAX("image") FROM "glyph" GROUP BY "aspect" HAVING "aspect" < 1 OR "aspect" > 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` < 1 OR `aspect` > 10"#
-    /// );
-    /// ```
-    pub fn or_having(&mut self, other: SimpleExpr) -> &mut Self {
-        self.having.push(LogicalChainOper::Or(other));
-        self
-    }
-
-    /// Order by column.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Glyph::Aspect)
-    ///     .from(Glyph::Table)
-    ///     .and_where(Expr::expr(Expr::col(Glyph::Aspect).if_null(0)).gt(2))
-    ///     .order_by(Glyph::Image, Order::Desc)
-    ///     .order_by((Glyph::Table, Glyph::Aspect), Order::Asc)
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` WHERE IFNULL(`aspect`, 0) > 2 ORDER BY `image` DESC, `glyph`.`aspect` ASC"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "aspect" FROM "glyph" WHERE COALESCE("aspect", 0) > 2 ORDER BY "image" DESC, "glyph"."aspect" ASC"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` WHERE IFNULL(`aspect`, 0) > 2 ORDER BY `image` DESC, `glyph`.`aspect` ASC"#
-    /// );
-    /// ```
-    pub fn order_by<T>(&mut self, col: T, order: Order) -> &mut Self 
-        where T: IntoColumnRef {
-        self.orders.push(OrderExpr {
-            expr: SimpleExpr::Column(col.into_column_ref()),
-            order,
-        });
-        self
-    }
-
     #[deprecated(
         since = "0.9.0",
         note = "Please use the [`SelectStatement::order_by`] with a tuple as [`ColumnRef`]"
@@ -1136,49 +908,6 @@ impl SelectStatement {
         (&mut self, table: T, col: C, order: Order) -> &mut Self 
         where T: IntoIden, C: IntoIden {
         self.order_by((table.into_iden(), col.into_iden()), order)
-    }
-
-    /// Order by [`SimpleExpr`].
-    pub fn order_by_expr(&mut self, expr: SimpleExpr, order: Order) -> &mut Self {
-        self.orders.push(OrderExpr {
-            expr,
-            order,
-        });
-        self
-    }
-
-    /// Order by custom string expression.
-    pub fn order_by_customs<T: 'static, I>(&mut self, cols: I) -> &mut Self
-    where
-        T: ToString,
-        I: IntoIterator<Item = (T, Order)>,
-    {
-        let mut orders = cols
-            .into_iter()
-            .map(|(c, order)| OrderExpr {
-                expr: SimpleExpr::Custom(c.to_string()),
-                order,
-            })
-            .collect();
-        self.orders.append(&mut orders);
-        self
-    }
-
-    /// Order by vector of columns.
-    pub fn order_by_columns<T, I>(&mut self, cols: I) -> &mut Self
-    where
-        T: IntoColumnRef,
-        I: IntoIterator<Item = (T, Order)>,
-    {
-        let mut orders = cols
-            .into_iter()
-            .map(|(c, order)| OrderExpr {
-                expr: SimpleExpr::Column(c.into_column_ref()),
-                order,
-            })
-            .collect();
-        self.orders.append(&mut orders);
-        self
     }
 
     #[deprecated(
@@ -1195,69 +924,6 @@ impl SelectStatement {
                 .map(|(t, c, o)| ((t.into_iden(), c.into_iden()), o))
                 .collect::<Vec<_>>(),
         )
-    }
-
-    /// Limit the number of returned rows.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Glyph::Aspect)
-    ///     .from(Glyph::Table)
-    ///     .limit(10)
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "aspect" FROM "glyph" LIMIT 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10"#
-    /// );
-    /// ```
-    pub fn limit(&mut self, limit: u64) -> &mut Self {
-        self.limit = Some(Value::BigUnsigned(limit));
-        self
-    }
-
-    /// Offset number of returned rows.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// use sea_query::{*, tests_cfg::*};
-    /// 
-    /// let query = Query::select()
-    ///     .column(Glyph::Aspect)
-    ///     .from(Glyph::Table)
-    ///     .limit(10)
-    ///     .offset(10)
-    ///     .to_owned();
-    /// 
-    /// assert_eq!(
-    ///     query.to_string(MysqlQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10 OFFSET 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(PostgresQueryBuilder),
-    ///     r#"SELECT "aspect" FROM "glyph" LIMIT 10 OFFSET 10"#
-    /// );
-    /// assert_eq!(
-    ///     query.to_string(SqliteQueryBuilder),
-    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10 OFFSET 10"#
-    /// );
-    /// ```
-    pub fn offset(&mut self, offset: u64) -> &mut Self {
-        self.offset = Some(Value::BigUnsigned(offset));
-        self
     }
 
     /// Build corresponding SQL statement for certain database backend and collect query parameters
@@ -1367,5 +1033,406 @@ impl SelectStatement {
     pub fn to_string<T: QueryBuilder>(&self, query_builder: T) -> String {
         let (sql, values) = self.build_any(&query_builder);
         inject_parameters(&sql, values.0, &query_builder)
+    }
+}
+
+impl SelectFilter for SelectStatement {
+    /// And where condition.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .table_column(Glyph::Table, Glyph::Image)
+    ///     .from(Glyph::Table)
+    ///     .and_where(Expr::tbl(Glyph::Table, Glyph::Aspect).is_in(vec![3, 4]))
+    ///     .and_where(Expr::tbl(Glyph::Table, Glyph::Image).like("A%"))
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) AND `glyph`.`image` LIKE 'A%'"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "glyph"."image" FROM "glyph" WHERE "glyph"."aspect" IN (3, 4) AND "glyph"."image" LIKE 'A%'"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) AND `glyph`.`image` LIKE 'A%'"#
+    /// );
+    /// ```
+    fn and_where(&mut self, other: SimpleExpr) -> &mut Self {
+        self.wherei.push(LogicalChainOper::And(other));
+        self
+    }
+
+    /// And where condition, variation of [`SelectStatement::and_where`].
+    fn and_where_option(&mut self, other: Option<SimpleExpr>) -> &mut Self {
+        if let Some(other) = other {
+            self.wherei.push(LogicalChainOper::And(other));
+        }
+        self
+    }
+
+    /// Or where condition.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .table_column(Glyph::Table, Glyph::Image)
+    ///     .from(Glyph::Table)
+    ///     .or_where(Expr::tbl(Glyph::Table, Glyph::Aspect).is_in(vec![3, 4]))
+    ///     .or_where(Expr::tbl(Glyph::Table, Glyph::Image).like("A%"))
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) OR `glyph`.`image` LIKE 'A%'"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "glyph"."image" FROM "glyph" WHERE "glyph"."aspect" IN (3, 4) OR "glyph"."image" LIKE 'A%'"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `glyph`.`image` FROM `glyph` WHERE `glyph`.`aspect` IN (3, 4) OR `glyph`.`image` LIKE 'A%'"#
+    /// );
+    /// ```
+    fn or_where(&mut self, other: SimpleExpr) -> &mut Self {
+        self.wherei.push(LogicalChainOper::Or(other));
+        self
+    }
+}
+
+impl SelectGroupBy for SelectStatement {
+    /// Group by columns.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Char::Character)
+    ///     .table_column(Font::Table, Font::Name)
+    ///     .from(Char::Table)
+    ///     .join(JoinType::RightJoin, Font::Table, Expr::tbl(Char::Table, Char::FontId).equals(Font::Table, Font::Id))
+    ///     .group_by_columns(vec![
+    ///         Char::Character,
+    ///     ])
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "character", "font"."name" FROM "character" RIGHT JOIN "font" ON "character"."font_id" = "font"."id" GROUP BY "character""#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`"#
+    /// );
+    /// ```
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Char::Character)
+    ///     .table_column(Font::Table, Font::Name)
+    ///     .from(Char::Table)
+    ///     .join(JoinType::RightJoin, Font::Table, Expr::tbl(Char::Table, Char::FontId).equals(Font::Table, Font::Id))
+    ///     .group_by_columns(vec![
+    ///         (Char::Table, Char::Character),
+    ///     ])
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`.`character`"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "character", "font"."name" FROM "character" RIGHT JOIN "font" ON "character"."font_id" = "font"."id" GROUP BY "character"."character""#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `character`, `font`.`name` FROM `character` RIGHT JOIN `font` ON `character`.`font_id` = `font`.`id` GROUP BY `character`.`character`"#
+    /// );
+    /// ```
+    fn group_by_columns<T, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: IntoColumnRef,
+        I: IntoIterator<Item = T>,
+    {
+        self.add_group_by(
+            cols.into_iter()
+                .map(|c| SimpleExpr::Column(c.into_column_ref()))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// Add group by expressions from vector of [`SelectExpr`].
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .from(Char::Table)
+    ///     .column(Char::Character)
+    ///     .add_group_by(vec![
+    ///         Expr::col(Char::SizeW).into(),
+    ///         Expr::col(Char::SizeH).into(),
+    ///     ])
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `character` FROM `character` GROUP BY `size_w`, `size_h`"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "character" FROM "character" GROUP BY "size_w", "size_h""#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `character` FROM `character` GROUP BY `size_w`, `size_h`"#
+    /// );
+    /// ```
+    fn add_group_by<I>(&mut self, expr: I) -> &mut Self
+    where
+        I: IntoIterator<Item = SimpleExpr>,
+    {
+        self.groups.append(&mut Vec::from_iter(expr.into_iter()));
+        self
+    }
+
+    /// And having condition.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Glyph::Aspect)
+    ///     .expr(Expr::col(Glyph::Image).max())
+    ///     .from(Glyph::Table)
+    ///     .group_by_columns(vec![
+    ///         Glyph::Aspect,
+    ///     ])
+    ///     .and_having(Expr::col(Glyph::Aspect).gt(2))
+    ///     .and_having(Expr::col(Glyph::Aspect).lt(8))
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` > 2 AND `aspect` < 8"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "aspect", MAX("image") FROM "glyph" GROUP BY "aspect" HAVING "aspect" > 2 AND "aspect" < 8"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` > 2 AND `aspect` < 8"#
+    /// );
+    /// ```
+    fn and_having(&mut self, other: SimpleExpr) -> &mut Self {
+        self.having.push(LogicalChainOper::And(other));
+        self
+    }
+
+    /// Or having condition.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Glyph::Aspect)
+    ///     .expr(Expr::col(Glyph::Image).max())
+    ///     .from(Glyph::Table)
+    ///     .group_by_columns(vec![
+    ///         Glyph::Aspect,
+    ///     ])
+    ///     .or_having(Expr::col(Glyph::Aspect).lt(1))
+    ///     .or_having(Expr::col(Glyph::Aspect).gt(10))
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` < 1 OR `aspect` > 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "aspect", MAX("image") FROM "glyph" GROUP BY "aspect" HAVING "aspect" < 1 OR "aspect" > 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `aspect`, MAX(`image`) FROM `glyph` GROUP BY `aspect` HAVING `aspect` < 1 OR `aspect` > 10"#
+    /// );
+    /// ```
+    fn or_having(&mut self, other: SimpleExpr) -> &mut Self {
+        self.having.push(LogicalChainOper::Or(other));
+        self
+    }
+}
+
+impl SelectOrder for SelectStatement {
+    /// Order by column.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Glyph::Aspect)
+    ///     .from(Glyph::Table)
+    ///     .and_where(Expr::expr(Expr::col(Glyph::Aspect).if_null(0)).gt(2))
+    ///     .order_by(Glyph::Image, Order::Desc)
+    ///     .order_by((Glyph::Table, Glyph::Aspect), Order::Asc)
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` WHERE IFNULL(`aspect`, 0) > 2 ORDER BY `image` DESC, `glyph`.`aspect` ASC"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "aspect" FROM "glyph" WHERE COALESCE("aspect", 0) > 2 ORDER BY "image" DESC, "glyph"."aspect" ASC"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` WHERE IFNULL(`aspect`, 0) > 2 ORDER BY `image` DESC, `glyph`.`aspect` ASC"#
+    /// );
+    /// ```
+    fn order_by<T>(&mut self, col: T, order: Order) -> &mut Self 
+        where T: IntoColumnRef {
+        self.orders.push(OrderExpr {
+            expr: SimpleExpr::Column(col.into_column_ref()),
+            order,
+        });
+        self
+    }
+
+    /// Order by [`SimpleExpr`].
+    fn order_by_expr(&mut self, expr: SimpleExpr, order: Order) -> &mut Self {
+        self.orders.push(OrderExpr {
+            expr,
+            order,
+        });
+        self
+    }
+
+    /// Order by custom string expression.
+    fn order_by_customs<T: 'static, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: ToString,
+        I: IntoIterator<Item = (T, Order)>,
+    {
+        let mut orders = cols
+            .into_iter()
+            .map(|(c, order)| OrderExpr {
+                expr: SimpleExpr::Custom(c.to_string()),
+                order,
+            })
+            .collect();
+        self.orders.append(&mut orders);
+        self
+    }
+
+    /// Order by vector of columns.
+    fn order_by_columns<T, I>(&mut self, cols: I) -> &mut Self
+    where
+        T: IntoColumnRef,
+        I: IntoIterator<Item = (T, Order)>,
+    {
+        let mut orders = cols
+            .into_iter()
+            .map(|(c, order)| OrderExpr {
+                expr: SimpleExpr::Column(c.into_column_ref()),
+                order,
+            })
+            .collect();
+        self.orders.append(&mut orders);
+        self
+    }
+}
+
+impl SelectLimit for SelectStatement {
+    /// Limit the number of returned rows.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Glyph::Aspect)
+    ///     .from(Glyph::Table)
+    ///     .limit(10)
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "aspect" FROM "glyph" LIMIT 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10"#
+    /// );
+    /// ```
+    fn limit(&mut self, limit: u64) -> &mut Self {
+        self.limit = Some(Value::BigUnsigned(limit));
+        self
+    }
+
+    /// Offset number of returned rows.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use sea_query::{*, tests_cfg::*};
+    /// 
+    /// let query = Query::select()
+    ///     .column(Glyph::Aspect)
+    ///     .from(Glyph::Table)
+    ///     .limit(10)
+    ///     .offset(10)
+    ///     .to_owned();
+    /// 
+    /// assert_eq!(
+    ///     query.to_string(MysqlQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10 OFFSET 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(PostgresQueryBuilder),
+    ///     r#"SELECT "aspect" FROM "glyph" LIMIT 10 OFFSET 10"#
+    /// );
+    /// assert_eq!(
+    ///     query.to_string(SqliteQueryBuilder),
+    ///     r#"SELECT `aspect` FROM `glyph` LIMIT 10 OFFSET 10"#
+    /// );
+    /// ```
+    fn offset(&mut self, offset: u64) -> &mut Self {
+        self.offset = Some(Value::BigUnsigned(offset));
+        self
     }
 }
