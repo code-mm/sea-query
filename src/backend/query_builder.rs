@@ -636,6 +636,18 @@ pub trait QueryBuilder: QuotedBuilder {
             Value::DateTime(v) => {
                 write!(s, "\'{}\'", v.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap()
             }
+            #[cfg(feature = "with-chrono")]
+            Value::DateTimeFixed(v) => {
+                write!(s, "\'{}\'", v.format("%Y-%m-%d %H:%M:%S%z").to_string()).unwrap()
+            }
+            #[cfg(feature = "with-chrono")]
+            Value::DateTimeLocal(v) => {
+                write!(s, "\'{}\'", v.format("%Y-%m-%d %H:%M:%S%z").to_string()).unwrap()
+            }
+            #[cfg(feature = "with-chrono")]
+            Value::DateTimeUtc(v) => {
+                write!(s, "\'{}\'", v.format("%Y-%m-%d %H:%M:%S%z").to_string()).unwrap()
+            }
             #[cfg(feature = "with-rust_decimal")]
             Value::Decimal(v) => write!(s, "{}", v).unwrap(),
             #[cfg(feature = "with-uuid")]

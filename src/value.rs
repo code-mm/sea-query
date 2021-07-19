@@ -7,7 +7,7 @@ use serde_json::Value as Json;
 use std::str::from_utf8;
 
 #[cfg(feature = "with-chrono")]
-use chrono::NaiveDateTime;
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
 
 #[cfg(feature = "with-rust_decimal")]
 use rust_decimal::Decimal;
@@ -40,6 +40,15 @@ pub enum Value {
     #[cfg(feature = "with-chrono")]
     #[cfg_attr(docsrs, doc(cfg(feature = "with-chrono")))]
     DateTime(Box<NaiveDateTime>),
+    #[cfg(feature = "with-chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "with-chrono")))]
+    DateTimeFixed(Box<DateTime<FixedOffset>>),
+    #[cfg(feature = "with-chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "with-chrono")))]
+    DateTimeLocal(Box<DateTime<Local>>),
+    #[cfg(feature = "with-chrono")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "with-chrono")))]
+    DateTimeUtc(Box<DateTime<Utc>>),
     #[cfg(feature = "with-uuid")]
     #[cfg_attr(docsrs, doc(cfg(feature = "with-uuid")))]
     Uuid(Box<Uuid>),
@@ -250,10 +259,28 @@ mod with_chrono {
     use super::*;
 
     type_to_box_value!(NaiveDateTime, DateTime);
+    type_to_box_value!(DateTime<FixedOffset>, DateTimeFixed);
+    type_to_box_value!(DateTime<Local>, DateTimeLocal);
+    type_to_box_value!(DateTime<Utc>, DateTimeUtc);
 
     impl ValueTypeDefault for NaiveDateTime {
         fn default() -> Self {
             NaiveDateTime::from_timestamp(0, 0)
+        }
+    }
+    impl ValueTypeDefault for DateTime<FixedOffset> {
+        fn default() -> Self {
+            FixedOffset::east(0).timestamp(0, 0)
+        }
+    }
+    impl ValueTypeDefault for DateTime<Local> {
+        fn default() -> Self {
+            Local.timestamp(0, 0)
+        }
+    }
+    impl ValueTypeDefault for DateTime<Utc> {
+        fn default() -> Self {
+            Utc.timestamp(0, 0)
         }
     }
 }
@@ -313,6 +340,57 @@ impl Value {
     #[cfg(not(feature = "with-chrono"))]
     pub fn as_ref_date_time(&self) -> &bool {
         panic!("not Value::DateTime")
+    }
+    pub fn is_date_time_fixed(&self) -> bool {
+        #[cfg(feature = "with-chrono")]
+        return matches!(self, Self::DateTimeFixed(_));
+        #[cfg(not(feature = "with-chrono"))]
+        return false;
+    }
+    #[cfg(feature = "with-chrono")]
+    pub fn as_ref_date_time_fixed(&self) -> &DateTime<FixedOffset> {
+        match self {
+            Self::DateTimeFixed(v) => v.as_ref(),
+            _ => panic!("not Value::DateTimeFixed"),
+        }
+    }
+    #[cfg(not(feature = "with-chrono"))]
+    pub fn as_ref_date_time_fixed(&self) -> &bool {
+        panic!("not Value::DateTimeFixed")
+    }
+    pub fn is_date_time_local(&self) -> bool {
+        #[cfg(feature = "with-chrono")]
+        return matches!(self, Self::DateTimeLocal(_));
+        #[cfg(not(feature = "with-chrono"))]
+        return false;
+    }
+    #[cfg(feature = "with-chrono")]
+    pub fn as_ref_date_time_local(&self) -> &DateTime<Local> {
+        match self {
+            Self::DateTimeLocal(v) => v.as_ref(),
+            _ => panic!("not Value::DateTimeLocal"),
+        }
+    }
+    #[cfg(not(feature = "with-chrono"))]
+    pub fn as_ref_date_time_local(&self) -> &bool {
+        panic!("not Value::DateTimeLocal")
+    }
+    pub fn is_date_time_utc(&self) -> bool {
+        #[cfg(feature = "with-chrono")]
+        return matches!(self, Self::DateTimeUtc(_));
+        #[cfg(not(feature = "with-chrono"))]
+        return false;
+    }
+    #[cfg(feature = "with-chrono")]
+    pub fn as_ref_date_time_utc(&self) -> &DateTime<Utc> {
+        match self {
+            Self::DateTimeUtc(v) => v.as_ref(),
+            _ => panic!("not Value::DateTimeUtc"),
+        }
+    }
+    #[cfg(not(feature = "with-chrono"))]
+    pub fn as_ref_date_time_utc(&self) -> &bool {
+        panic!("not Value::DateTimeUtc")
     }
 }
 
@@ -665,10 +743,37 @@ mod tests {
 
     #[test]
     #[cfg(feature = "with-chrono")]
-    fn test_chrono_value() {
+    fn test_chrono_value_1() {
         let timestamp = chrono::NaiveDate::from_ymd(2020, 1, 1).and_hms(2, 2, 2);
         let value: Value = timestamp.into();
         let out: NaiveDateTime = value.unwrap();
+        assert_eq!(out, timestamp);
+    }
+
+    #[test]
+    #[cfg(feature = "with-chrono")]
+    fn test_chrono_value_2() {
+        let timestamp = FixedOffset::east(0).ymd(2020, 1, 1).and_hms(2, 2, 2);
+        let value: Value = timestamp.into();
+        let out: DateTime<FixedOffset> = value.unwrap();
+        assert_eq!(out, timestamp);
+    }
+
+    #[test]
+    #[cfg(feature = "with-chrono")]
+    fn test_chrono_value_3() {
+        let timestamp = Local::now();
+        let value: Value = timestamp.into();
+        let out: DateTime<Local> = value.unwrap();
+        assert_eq!(out, timestamp);
+    }
+
+    #[test]
+    #[cfg(feature = "with-chrono")]
+    fn test_chrono_value_4() {
+        let timestamp = DateTime::<Utc>::from_utc(chrono::NaiveDate::from_ymd(2020, 1, 1).and_hms(2, 2, 2), Utc);
+        let value: Value = timestamp.into();
+        let out: DateTime<Utc> = value.unwrap();
         assert_eq!(out, timestamp);
     }
 
