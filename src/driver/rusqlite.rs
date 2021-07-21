@@ -49,6 +49,12 @@ macro_rules! sea_query_driver_rusqlite {
                                 (*self.0.as_ref_json()).to_sql()
                             } else if self.0.is_date_time() {
                                 (*self.0.as_ref_date_time()).to_sql()
+                            } else if self.0.is_date_time_fixed() {
+                                (*self.0.as_ref_date_time_fixed()).to_sql()
+                            } else if self.0.is_date_time_local() {
+                                (*self.0.as_ref_date_time_local()).to_sql()
+                            } else if self.0.is_date_time_utc() {
+                                (*self.0.as_ref_date_time_utc()).to_sql()
                             } else if self.0.is_decimal() {
                                 unimplemented!("Not supported");
                             } else if self.0.is_uuid() {
